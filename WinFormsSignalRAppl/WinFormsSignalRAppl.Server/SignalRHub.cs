@@ -16,34 +16,35 @@ namespace WinFormsSignalRAppl.Server
     {
         FormServer formServer = (FormServer)Application.OpenForms[0];
         static List<UserConnected> UsersConnected = new List<UserConnected>();
-        ApplicationDbContext Db { get; }
 
-        public SignalRHub()
-        {
-            string root = Environment.CurrentDirectory;
-            root = root.Replace(@"\bin\Debug", @"\App_Data");
-            string connection = ConfigurationManager.ConnectionStrings["DBConnection"].ConnectionString;
-            connection = connection.Replace("DataDirectory", root);
-            Db = new ApplicationDbContext(connection);
-        }
-
-        public void SendFile(string fileContent)
+        public async Task SendFile(string fileContent)
         {
             var userName = base.Context.Headers["userName"];
-            Clients.AllExcept(Context.ConnectionId).getFile(userName, fileContent);
+            var userListExceptCaller = UsersConnected.Where(x => x.Name != userName).Select(x => x.ConnectionId).ToList();
+            Clients.Clients(userListExceptCaller).getFile(userName, fileContent);
+
             ClientFile clientFileCurrent = new ClientFile { Name = userName, FileContent = fileContent, MessageTime = DateTime.Now };
 
             formServer.Invoke((Action)(() =>
             ((RichTextBox)formServer.Controls["ServerLogBox"]).AppendText("Client \"" + userName + " send file\n")));
-            Db.ClientFiles.Add(clientFileCurrent);
-            Db.Entry(clientFileCurrent).State = EntityState.Added;
-            Db.SaveChangesAsync();
+
+            string root = Environment.CurrentDirectory;
+            root = root.Replace(@"\bin\Debug", @"\App_Data");
+            string connection = ConfigurationManager.ConnectionStrings["DBConnection"].ConnectionString;
+            connection = connection.Replace("DataDirectory", root);
+
+            using (ApplicationDbContext db = new ApplicationDbContext(connection))
+            {
+                db.ClientFiles.Add(clientFileCurrent);
+                db.Entry(clientFileCurrent).State = EntityState.Added;
+                await db.SaveChangesAsync();
+            }
         }
 
         public override Task OnConnected()
         {
             var userName = base.Context.Headers["userName"];
-            if(UsersConnected.FirstOrDefault(x=>x.Name==userName)!=null)
+            if (UsersConnected.FirstOrDefault(x => x.Name == userName) != null)
             {
                 base.Clients.Caller.ifSameName();
                 return null;
